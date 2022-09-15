@@ -76,7 +76,11 @@ def test_multi_column_restrictions_and_filtering(cql, test_keyspace):
         # result, and adding "AND r=0" should return nothing.
         assert list(cql.execute(f"SELECT c1,c2,r FROM {table} WHERE p=1 AND (c1, c2) = (0,1) AND r=1 ALLOW FILTERING")) == [(0,1,1)]
         # Reproduces #6200:
-        assert list(cql.execute(f"SELECT c1,c2,r FROM {table} WHERE p=1 AND (c1, c2) = (0,1) AND r=0 ALLOW FILTERING")) == []
+        assert not list(
+            cql.execute(
+                f"SELECT c1,c2,r FROM {table} WHERE p=1 AND (c1, c2) = (0,1) AND r=0 ALLOW FILTERING"
+            )
+        )
 
 # Like the previous test, just in cases that require ALLOW FILTERING.
 # We add another clustering key column to ensure that filtering *in*

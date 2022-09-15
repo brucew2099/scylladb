@@ -75,9 +75,15 @@ def this_dc(cql):
 @pytest.fixture(scope="session")
 def test_keyspace(cql, this_dc):
     name = unique_name()
-    cql.execute("CREATE KEYSPACE " + name + " WITH REPLICATION = { 'class' : 'NetworkTopologyStrategy', '" + this_dc + "' : 1 }")
+    cql.execute(
+        f"CREATE KEYSPACE {name}"
+        + " WITH REPLICATION = { 'class' : 'NetworkTopologyStrategy', '"
+        + this_dc
+        + "' : 1 }"
+    )
+
     yield name
-    cql.execute("DROP KEYSPACE " + name)
+    cql.execute(f"DROP KEYSPACE {name}")
 
 # The "scylla_only" fixture can be used by tests for Scylla-only features,
 # which do not exist on Apache Cassandra. A test using this fixture will be
@@ -87,7 +93,7 @@ def scylla_only(cql):
     # We recognize Scylla by checking if there is any system table whose name
     # contains the word "scylla":
     names = [row.table_name for row in cql.execute("SELECT * FROM system_schema.tables WHERE keyspace_name = 'system'")]
-    if not any('scylla' in name for name in names):
+    if all('scylla' not in name for name in names):
         pytest.skip('Scylla-only test skipped')
 
 # "cassandra_bug" is similar to "scylla_only", except instead of skipping
@@ -99,7 +105,7 @@ def cassandra_bug(cql):
     # We recognize Scylla by checking if there is any system table whose name
     # contains the word "scylla":
     names = [row.table_name for row in cql.execute("SELECT * FROM system_schema.tables WHERE keyspace_name = 'system'")]
-    if not any('scylla' in name for name in names):
+    if all('scylla' not in name for name in names):
         pytest.xfail('A known Cassandra bug')
 
 # While the raft-based schema modifications are still experimental and only
@@ -112,11 +118,11 @@ def cassandra_bug(cql):
 def check_pre_raft(cql):
     # If not running on Scylla, return false.
     names = [row.table_name for row in cql.execute("SELECT * FROM system_schema.tables WHERE keyspace_name = 'system'")]
-    if not any('scylla' in name for name in names):
+    if all('scylla' not in name for name in names):
         return False
     # In Scylla, we check Raft mode by inspecting the configuration via CQL.
     experimental_features = list(cql.execute("SELECT value FROM system.config WHERE name = 'experimental_features'"))[0].value
-    return not '"raft"' in experimental_features
+    return '"raft"' not in experimental_features
 @pytest.fixture(scope="function")
 def fails_without_raft(request, check_pre_raft):
     if check_pre_raft:

@@ -35,14 +35,14 @@ def get_template_arg_with_prefix(gdb_type, prefix):
 
 
 def get_base_class_offset(gdb_type, base_class_name):
-    name_pattern = re.escape(base_class_name) + "(<.*>)?$"
+    name_pattern = f"{re.escape(base_class_name)}(<.*>)?$"
     for field in gdb_type.fields():
         if field.is_base_class:
             field_offset = int(field.bitpos / 8)
             if re.match(name_pattern, field.type.strip_typedefs().name):
                 return field_offset
             offset = get_base_class_offset(field.type, base_class_name)
-            if not offset is None:
+            if offset is not None:
                 return field_offset + offset
 
 
@@ -66,16 +66,16 @@ class intrusive_list:
             self.root = rps['m_header']
         if link is not None:
             self.link_offset = get_field_offset(self.node_type, link)
+        elif member_hook := get_template_arg_with_prefix(
+            list_type, "boost::intrusive::member_hook"
+        ) or get_template_arg_with_prefix(
+            list_type, "struct boost::intrusive::member_hook"
+        ):
+            self.link_offset = member_hook.template_argument(2).cast(self.size_t)
         else:
-            member_hook = get_template_arg_with_prefix(list_type, "boost::intrusive::member_hook")
-            if not member_hook:
-                member_hook = get_template_arg_with_prefix(list_type, "struct boost::intrusive::member_hook")
-            if member_hook:
-                self.link_offset = member_hook.template_argument(2).cast(self.size_t)
-            else:
-                self.link_offset = get_base_class_offset(self.node_type, "boost::intrusive::list_base_hook")
-                if self.link_offset is None:
-                    raise Exception("Class does not extend list_base_hook: " + str(self.node_type))
+            self.link_offset = get_base_class_offset(self.node_type, "boost::intrusive::list_base_hook")
+            if self.link_offset is None:
+                raise Exception(f"Class does not extend list_base_hook: {str(self.node_type)}")
 
     def __iter__(self):
         hook = self.root['next_']
@@ -105,14 +105,16 @@ class intrusive_slist:
 
         if link is not None:
             self.link_offset = get_field_offset(self.node_type, link)
+        elif member_hook := get_template_arg_with_prefix(
+            list_type, "struct boost::intrusive::member_hook"
+        ):
+            self.link_offset = member_hook.template_argument(2).cast(self.size_t)
         else:
-            member_hook = get_template_arg_with_prefix(list_type, "struct boost::intrusive::member_hook")
-            if member_hook:
-                self.link_offset = member_hook.template_argument(2).cast(self.size_t)
-            else:
-                self.link_offset = get_base_class_offset(self.node_type, "boost::intrusive::slist_base_hook")
-                if self.link_offset is None:
-                    raise Exception("Class does not extend slist_base_hook: " + str(self.node_type))
+            self.link_offset = get_base_class_offset(self.node_type, "boost::intrusive::slist_base_hook")
+            if self.link_offset is None:
+                raise Exception(
+                    f"Class does not extend slist_base_hook: {str(self.node_type)}"
+                )
 
     def __iter__(self):
         hook = self.root['next_']
@@ -182,27 +184,24 @@ class intrusive_set:
         self.node_type = container_type.template_argument(0)
         if link is not None:
             self.link_offset = get_field_offset(self.node_type, link)
-        else:
-            member_hook = get_template_arg_with_prefix(container_type, "boost::intrusive::member_hook")
-            if not member_hook:
-                raise Exception('Expected member_hook<> option not found in container\'s template parameters')
+        elif member_hook := get_template_arg_with_prefix(
+            container_type, "boost::intrusive::member_hook"
+        ):
             self.link_offset = member_hook.template_argument(2).cast(self.size_t)
+        else:
+            raise Exception('Expected member_hook<> option not found in container\'s template parameters')
         self.root = ref['holder']['root']['parent_']
 
     def __visit(self, node):
         if node:
-            for n in self.__visit(node['left_']):
-                yield n
-
+            yield from self.__visit(node['left_'])
             node_ptr = node.cast(self.size_t) - self.link_offset
             yield node_ptr.cast(self.node_type.pointer()).dereference()
 
-            for n in self.__visit(node['right_']):
-                yield n
+            yield from self.__visit(node['right_'])
 
     def __iter__(self):
-        for n in self.__visit(self.root):
-            yield n
+        yield from self.__visit(self.root)
 
 
 class compact_radix_tree:
@@ -226,44 +225,40 @@ class intrusive_btree:
         self.key_type = container_type.template_argument(0)
 
     def __visit_node_base(self, base, kids):
-        for i in range(0, base['num_keys']):
+        for i in range(base['num_keys']):
             if kids:
-                for r in self.__visit_node(kids[i]):
-                    yield r
-
+                yield from self.__visit_node(kids[i])
             yield base['keys'][i].cast(self.key_type.pointer()).dereference()
 
         if kids:
-            for r in self.__visit_node(kids[base['num_keys']]):
-                yield r
+            yield from self.__visit_node(kids[base['num_keys']])
 
     def __visit_node(self, node):
         base = node['_base']
-        kids = node['_kids'] if not base['flags'] & self.leaf_node_flag else None
+        kids = None if base['flags'] & self.leaf_node_flag else node['_kids']
 
-        for r in self.__visit_node_base(base, kids):
-            yield r
+        yield from self.__visit_node_base(base, kids)
 
     def __iter__(self):
         if self.tree['_root']:
-            for r in self.__visit_node(self.tree['_root']):
-                yield r
+            yield from self.__visit_node(self.tree['_root'])
         else:
-            for r in self.__visit_node_base(self.tree['_inline'], None):
-                yield r
+            yield from self.__visit_node_base(self.tree['_inline'], None)
 
 
 class bplus_tree:
     def __init__(self, ref):
         self.tree = ref
-        self.leaf_node_flag = int(gdb.parse_and_eval(self.tree.type.name + "::node::NODE_LEAF"))
-        self.rightmost_leaf_flag = int(gdb.parse_and_eval(self.tree.type.name + "::node::NODE_RIGHTMOST"))
+        self.leaf_node_flag = int(
+            gdb.parse_and_eval(f"{self.tree.type.name}::node::NODE_LEAF")
+        )
+
+        self.rightmost_leaf_flag = int(
+            gdb.parse_and_eval(f"{self.tree.type.name}::node::NODE_RIGHTMOST")
+        )
 
     def __len__(self):
-        i = 0
-        for _ in self:
-            i += 1
-        return i
+        return sum(1 for _ in self)
 
     def __iter__(self):
         node_p = self.tree['_left']
@@ -272,20 +267,23 @@ class bplus_tree:
             if not node['_flags'] & self.leaf_node_flag:
                 raise ValueError("Expected B+ leaf node")
 
-            for i in range(0, node['_num_keys']):
+            for i in range(node['_num_keys']):
                 yield node['_kids'][i+1]['d'].dereference()['value']
 
-            if node['_flags'] & self.rightmost_leaf_flag:
-                node_p = None
-            else:
-                node_p = node['__next']
+            node_p = None if node['_flags'] & self.rightmost_leaf_flag else node['__next']
 
 
 class double_decker:
     def __init__(self, ref):
         self.tree = ref['_tree']
-        self.leaf_node_flag = int(gdb.parse_and_eval(self.tree.type.name + "::node::NODE_LEAF"))
-        self.rightmost_leaf_flag = int(gdb.parse_and_eval(self.tree.type.name + "::node::NODE_RIGHTMOST"))
+        self.leaf_node_flag = int(
+            gdb.parse_and_eval(f"{self.tree.type.name}::node::NODE_LEAF")
+        )
+
+        self.rightmost_leaf_flag = int(
+            gdb.parse_and_eval(f"{self.tree.type.name}::node::NODE_RIGHTMOST")
+        )
+
         self.max_conflicting_partitions = 128
 
     def __iter__(self):
@@ -295,7 +293,7 @@ class double_decker:
             if not node['_flags'] & self.leaf_node_flag:
                 raise ValueError("Expected B+ leaf node")
 
-            for i in range(0, node['_num_keys']):
+            for i in range(node['_num_keys']):
                 parts = node['_kids'][i+1]['d'].dereference()['value']
                 p = 0
                 while True:
@@ -309,10 +307,7 @@ class double_decker:
                         raise ValueError("Too many conflicting partitions")
                     p += 1
 
-            if node['_flags'] & self.rightmost_leaf_flag:
-                node_p = None
-            else:
-                node_p = node['__next']
+            node_p = None if node['_flags'] & self.rightmost_leaf_flag else node['__next']
 
 
 class boost_variant:
@@ -345,7 +340,7 @@ class std_variant:
     def get_with_type(self, current_type):
         index = self.index()
         variadic_union = self.ref['_M_u']
-        for i in range(index):
+        for _ in range(index):
             variadic_union = variadic_union['_M_rest']
 
         wrapper = variadic_union['_M_first']['_M_storage']
@@ -369,24 +364,20 @@ class std_map:
         container_type = ref.type.strip_typedefs()
         kt = container_type.template_argument(0)
         vt = container_type.template_argument(1)
-        self.value_type = gdb.lookup_type('::std::pair<{} const, {} >'.format(str(kt), str(vt)))
+        self.value_type = gdb.lookup_type(f'::std::pair<{str(kt)} const, {str(vt)} >')
         self.root = ref['_M_t']['_M_impl']['_M_header']['_M_parent']
         self.size = int(ref['_M_t']['_M_impl']['_M_node_count'])
 
     def __visit(self, node):
         if node:
-            for n in self.__visit(node['_M_left']):
-                yield n
-
+            yield from self.__visit(node['_M_left'])
             value = (node + 1).cast(self.value_type.pointer()).dereference()
             yield value['first'], value['second']
 
-            for n in self.__visit(node['_M_right']):
-                yield n
+            yield from self.__visit(node['_M_right'])
 
     def __iter__(self):
-        for n in self.__visit(self.root):
-            yield n
+        yield from self.__visit(self.root)
 
     def __len__(self):
         return self.size
@@ -403,18 +394,14 @@ class intrusive_set_external_comparator:
 
     def __visit(self, node):
         if node:
-            for n in self.__visit(node['left_']):
-                yield n
-
+            yield from self.__visit(node['left_'])
             node_ptr = node.cast(self.size_t) - self.link_offset
             yield node_ptr.cast(self.node_type.pointer()).dereference()
 
-            for n in self.__visit(node['right_']):
-                yield n
+            yield from self.__visit(node['right_'])
 
     def __iter__(self):
-        for n in self.__visit(self.root):
-            yield n
+        yield from self.__visit(self.root)
 
 
 class std_array:
@@ -474,8 +461,13 @@ class std_unordered_set:
     def __init__(self, ref):
         self.ht = ref['_M_h']
         value_type = ref.type.template_argument(0)
-        _, node_type = lookup_type(['::std::__detail::_Hash_node<{}, {}>'.format(value_type.name, cache)
-                                    for cache in ('false', 'true')])
+        _, node_type = lookup_type(
+            [
+                f'::std::__detail::_Hash_node<{value_type.name}, {cache}>'
+                for cache in ('false', 'true')
+            ]
+        )
+
         self.node_ptr_type = node_type.pointer()
         self.value_ptr_type = value_type.pointer()
 
@@ -501,9 +493,14 @@ class std_unordered_map:
         self.ht = ref['_M_h']
         kt = ref.type.template_argument(0)
         vt = ref.type.template_argument(1)
-        value_type = gdb.lookup_type('::std::pair<{} const, {} >'.format(str(kt), str(vt)))
-        _, node_type = lookup_type(['::std::__detail::_Hash_node<{}, {}>'.format(value_type.name, cache)
-                                    for cache in ('false', 'true')])
+        value_type = gdb.lookup_type(f'::std::pair<{str(kt)} const, {str(vt)} >')
+        _, node_type = lookup_type(
+            [
+                f'::std::__detail::_Hash_node<{value_type.name}, {cache}>'
+                for cache in ('false', 'true')
+            ]
+        )
+
         self.node_ptr_type = node_type.pointer()
         self.value_ptr_type = value_type.pointer()
 
@@ -528,7 +525,10 @@ class flat_hash_map:
     def __init__(self, ref):
         kt = ref.type.template_argument(0)
         vt = ref.type.template_argument(1)
-        slot_ptr_type = gdb.lookup_type('::std::pair<const {}, {} >'.format(str(kt), str(vt))).pointer()
+        slot_ptr_type = gdb.lookup_type(
+            f'::std::pair<const {str(kt)}, {str(vt)} >'
+        ).pointer()
+
         self.slots = ref['slots_'].cast(slot_ptr_type)
         self.size = ref['size_']
 
@@ -589,10 +589,7 @@ class std_deque:
         yield node_end['_M_first'], node_end['_M_cur']
 
     def __len__(self):
-        l = 0
-        for start, end in self._foreach_node():
-            l += (end - start)
-        return l
+        return sum((end - start) for start, end in self._foreach_node())
 
     def __nonzero__(self):
         return self.__len__() > 0
@@ -658,10 +655,7 @@ class std_list:
         try:
             return int(self.ref['_M_impl']['_M_node']['_M_size'])
         except gdb.error:
-            i = 0
-            for _ in self:
-                i += 1
-            return i
+            return sum(1 for _ in self)
 
     def __nonzero__(self):
         return self.__len__() > 0
@@ -671,10 +665,10 @@ class std_list:
 
     def __getitem__(self, item):
         if not isinstance(item, int):
-            raise ValueError("Invalid index: expected `{}`, got: `{}`".format(int, type(item)))
+            raise ValueError(f"Invalid index: expected `{int}`, got: `{type(item)}`")
 
         if item >= len(self):
-            raise ValueError("Index out of range: expected < {}, got {}".format(len(self), item))
+            raise ValueError(f"Index out of range: expected < {len(self)}, got {item}")
 
         i = 0
         it = iter(self)
@@ -746,8 +740,7 @@ class chunked_managed_vector:
 
     def __iter__(self):
         for chunk in managed_vector(self._ref['_chunks']):
-            for e in managed_vector(chunk):
-                yield e
+            yield from managed_vector(chunk)
 
 
 class sstring:
@@ -815,12 +808,11 @@ class sstring_printer(gdb.printing.PrettyPrinter):
         self.val = val
 
     def to_string(self):
-        if self.val['u']['internal']['size'] >= 0:
-            array = self.val['u']['internal']['str']
-            len = int(self.val['u']['internal']['size'])
-            return ''.join([chr(array[x]) for x in range(len)])
-        else:
+        if self.val['u']['internal']['size'] < 0:
             return self.val['u']['external']['str']
+        array = self.val['u']['internal']['str']
+        len = int(self.val['u']['internal']['size'])
+        return ''.join([chr(array[x]) for x in range(len)])
 
     def display_hint(self):
         return 'string'
@@ -853,13 +845,12 @@ class managed_bytes_printer(gdb.printing.PrettyPrinter):
 
         if self.val['_u']['small']['size'] >= 0:
             return to_hex(self.val['_u']['small']['data'], int(self.val['_u']['small']['size']))
-        else:
-            ref = self.val['_u']['ptr']
-            chunks = list()
-            while ref['ptr']:
-                chunks.append(to_hex(ref['ptr']['data'], int(ref['ptr']['frag_size'])))
-                ref = ref['ptr']['next']
-            return ''.join(chunks)
+        ref = self.val['_u']['ptr']
+        chunks = []
+        while ref['ptr']:
+            chunks.append(to_hex(ref['ptr']['data'], int(ref['ptr']['frag_size'])))
+            ref = ref['ptr']['next']
+        return ''.join(chunks)
 
     def to_string(self):
         return str(self.bytes())
@@ -872,9 +863,11 @@ class optional_printer(gdb.printing.PrettyPrinter):
         self.val = val
 
     def to_string(self):
-        if not self.val['_M_payload']['_M_engaged']:
-            return 'std::nullopt'
-        return str(self.val)
+        return (
+            str(self.val)
+            if self.val['_M_payload']['_M_engaged']
+            else 'std::nullopt'
+        )
 
     def display_hint(self):
         return 'std::optional'
@@ -885,10 +878,10 @@ class partition_entry_printer(gdb.printing.PrettyPrinter):
         self.val = val
 
     def to_string(self):
-        versions = list()
+        versions = []
         v = self.val['_version']['_version']
         while v:
-            versions.append('@%s: %s' % (v, v.dereference()))
+            versions.append(f'@{v}: {v.dereference()}')
             v = v['_next']
         return '{_snapshot=%s, _version=%s, versions=[\n%s\n]}' % (self.val['_snapshot'], self.val['_version'], ',\n'.join(versions))
 
@@ -908,8 +901,14 @@ class mutation_partition_printer(gdb.printing.PrettyPrinter):
             return intrusive_set_external_comparator(self.val['_rows'])
 
     def to_string(self):
-        rows = list(str(r) for r in self.__rows())
-        range_tombstones = list(str(r) for r in intrusive_set(self.val['_row_tombstones']['_tombstones'], link='_link'))
+        rows = [str(r) for r in self.__rows()]
+        range_tombstones = [
+            str(r)
+            for r in intrusive_set(
+                self.val['_row_tombstones']['_tombstones'], link='_link'
+            )
+        ]
+
         return '{_tombstone=%s, _static_row=%s (cont=%s), _row_tombstones=[%s], _rows=[%s]}' % (
             self.val['_tombstone'],
             self.val['_static_row'],
@@ -929,7 +928,8 @@ class row_printer(gdb.printing.PrettyPrinter):
         if self.val['_type'] == gdb.parse_and_eval('row::storage_type::vector'):
             cells = str(self.val['_storage']['vector'])
         elif self.val['_type'] == gdb.parse_and_eval('row::storage_type::set'):
-            cells = '[%s]' % (', '.join(str(cell) for cell in intrusive_set(self.val['_storage']['set'])))
+            cells = f"[{', '.join(str(cell) for cell in intrusive_set(self.val['_storage']['set']))}]"
+
         else:
             raise Exception('Unsupported storage type: ' + self.val['_type'])
         return '{type=%s, cells=%s}' % (self.val['_type'], cells)
@@ -950,9 +950,7 @@ class managed_vector_printer(gdb.printing.PrettyPrinter):
 
     def to_string(self):
         size = int(self.val['_size'])
-        items = list()
-        for i in range(size):
-            items.append(str(self.val['_data'][i]))
+        items = [str(self.val['_data'][i]) for i in range(size)]
         return '{size=%d, items=[%s]}' % (size, ', '.join(items))
 
     def display_hint(self):
@@ -975,9 +973,9 @@ class boost_intrusive_list_printer(gdb.printing.PrettyPrinter):
     def __init__(self, val):
         self.val = intrusive_list(val)
     def to_string(self):
-        items = ['@' + str(v.address) + '=' + str(v) for v in self.val]
+        items = [f'@{str(v.address)}={str(v)}' for v in self.val]
         ptrs = [str(v.address) for v in self.val]
-        return 'boost::intrusive::list of size {} = [{}] = [{}]'.format(len(items), ', '.join(ptrs), ', '.join(items))
+        return f"boost::intrusive::list of size {len(items)} = [{', '.join(ptrs)}] = [{', '.join(items)}]"
 
 
 class nonwrapping_interval_printer(gdb.printing.PrettyPrinter):
@@ -1000,12 +998,7 @@ class nonwrapping_interval_printer(gdb.printing.PrettyPrinter):
         has_start, start_inclusive, start_value = self.inspect_bound(self.val['_start'])
         has_end, end_inclusive, end_value = self.inspect_bound(self.val['_end'])
 
-        return '{}{}, {}{}'.format(
-            '[' if start_inclusive  else '(',
-            str(start_value) if has_start else '-inf',
-            str(end_value) if has_end else '+inf',
-            ']' if end_inclusive  else ')',
-        )
+        return f"{'[' if start_inclusive else '('}{str(start_value) if has_start else '-inf'}, {str(end_value) if has_end else '+inf'}{']' if end_inclusive else ')'}"
 
 
 class ring_position_printer(gdb.printing.PrettyPrinter):
@@ -1013,18 +1006,13 @@ class ring_position_printer(gdb.printing.PrettyPrinter):
         self.val = val
 
     def to_string(self):
-        pkey = std_optional(self.val['_key'])
-        if pkey:
+        if pkey := std_optional(self.val['_key']):
             # we can assume token_kind == token_kind::key
             return '{{{}, {}}}'.format(str(self.val['_token']['_data']), str(pkey.get()['_bytes']))
 
         token_bound = int(self.val['_token_bound'])
         token_kind = str(self.val['_token']['_kind'])[17:] # ignore the dht::token_kind:: prefix
-        if token_kind == 'key':
-            token = str(self.val['_token']['_data'])
-        else:
-            token = token_kind
-
+        token = str(self.val['_token']['_data']) if token_kind == 'key' else token_kind
         return '{{{}, {}}}'.format(token, token_bound)
 
 
@@ -1150,16 +1138,13 @@ def get_text_ranges():
         elif line.endswith("is .rodata"):
             ret.append(section_bounds(line))
 
-    if len(ret) == 0:
+    if not ret:
         raise Exception("Failed to find plausible text sections")
     return ret
 
 
 def addr_in_ranges(ranges, addr):
-    for r in ranges:
-        if addr >= r[0] and addr <= r[1]:
-            return True
-    return False
+    return any(addr >= r[0] and addr <= r[1] for r in ranges)
 
 
 class histogram:
@@ -1199,23 +1184,14 @@ class histogram:
             By default, items are printed verbatim.
         * limit: limit the number of printed items to the top limit ones.
         """
-        if counts is None:
-            self._counts = defaultdict(int)
-        else:
-            self._counts = counts
+        self._counts = defaultdict(int) if counts is None else counts
         self._print_indicators = print_indicators
 
         def default_formatter(value):
             return str(value)
-        if formatter is None:
-            self._formatter = default_formatter
-        else:
-            self._formatter = formatter
 
-        if limit is None:
-            self._limit = -1
-        else:
-            self._limit = limit
+        self._formatter = default_formatter if formatter is None else formatter
+        self._limit = -1 if limit is None else limit
 
     def __len__(self):
         return len(self._counts)
@@ -1243,11 +1219,7 @@ class histogram:
         counts_sorted = list(reversed(sorted(by_counts.keys())))
         max_count = counts_sorted[0]
 
-        if max_count == 0:
-            count_per_column = 0
-        else:
-            count_per_column = self._column_count / max_count
-
+        count_per_column = 0 if max_count == 0 else self._column_count / max_count
         lines = []
         limit = self._limit
 
@@ -1261,7 +1233,7 @@ class histogram:
                 try:
                     lines.append('{:9d} {} {}'.format(count, self._formatter(item), indicator))
                 except:
-                    gdb.write("error: failed to format item `{}': {}\n".format(item, sys.exc_info()[1]))
+                    gdb.write(f"error: failed to format item `{item}': {sys.exc_info()[1]}\n")
             limit -= 1
             if not limit:
                 break
@@ -1269,7 +1241,7 @@ class histogram:
         return '\n'.join(lines)
 
     def __repr__(self):
-        return 'histogram({})'.format(self._counts)
+        return f'histogram({self._counts})'
 
     def print_to_console(self):
         gdb.write(str(self) + '\n')
@@ -1324,10 +1296,7 @@ class task_symbol_matcher:
         if re.search(self._coro_pattern, name) is not None:
             return True
 
-        for matcher in self._whitelist:
-            if matcher(name):
-                return True
-        return False
+        return any(matcher(name) for matcher in self._whitelist)
 
 
 class scylla(gdb.Command):
@@ -1432,7 +1401,12 @@ class scylla_task_histogram(gdb.Command):
 
         pages = cpu_mem['pages']
         nr_pages = int(cpu_mem['nr_pages'])
-        page_samples = range(0, nr_pages) if args.all else random.sample(range(0, nr_pages), nr_pages)
+        page_samples = (
+            range(nr_pages)
+            if args.all
+            else random.sample(range(nr_pages), nr_pages)
+        )
+
 
         text_ranges = get_text_ranges()
 
@@ -1461,7 +1435,7 @@ class scylla_task_histogram(gdb.Command):
             scanned_pages += 1
             objsize = size if size != 0 else int(pool.dereference()['_object_size'])
             span_size = span.used_span_size() * page_size
-            for idx2 in range(0, int(span_size / objsize)):
+            for idx2 in range(int(span_size / objsize)):
                 obj_addr = span.start + idx2 * objsize
                 addr = int(gdb.Value(obj_addr).reinterpret_cast(vptr_type).dereference())
                 if not addr_in_ranges(text_ranges, addr):
@@ -1521,7 +1495,7 @@ def find_vptrs():
             continue
         objsize = int(pool.dereference()['_object_size'])
         span_size = pages[idx]['span_size'] * page_size
-        for idx2 in range(0, int(span_size / objsize) + 1):
+        for idx2 in range(int(span_size / objsize) + 1):
             obj_addr = mem_start + idx * page_size + idx2 * objsize
             vptr = obj_addr.reinterpret_cast(vptr_type).dereference()
             if is_vptr(vptr):
@@ -1601,7 +1575,7 @@ class schema_ptr:
         return self.ptr['_raw']['_cf_name']
 
     def table_name(self):
-        return '%s.%s' % (self.ptr['_raw']['_ks_name'], self.ptr['_raw']['_cf_name'])
+        return f"{self.ptr['_raw']['_ks_name']}.{self.ptr['_raw']['_cf_name']}"
 
 
 class scylla_active_sstables(gdb.Command):
@@ -1626,7 +1600,7 @@ class scylla_active_sstables(gdb.Command):
         except Exception:
             count_index_lists = None
 
-        sstables = dict()  # name -> sstable*
+        sstables = {}
         for sst in find_active_sstables():
             schema = schema_ptr(sst['_schema'])
             id = '%s#%d' % (schema.table_name(), sst['_generation'])
@@ -1670,15 +1644,13 @@ class std_atomic():
 
 
 def has_enable_lw_shared_from_this(type):
-    for f in type.fields():
-        if f.is_base_class and 'enable_lw_shared_from_this' in f.name:
-            return True
-    return False
+    return any(
+        f.is_base_class and 'enable_lw_shared_from_this' in f.name
+        for f in type.fields()
+    )
 
 def remove_prefix(s, prefix):
-    if s.startswith(prefix):
-        return s[len(prefix):]
-    return s
+    return s[len(prefix):] if s.startswith(prefix) else s
 
 class seastar_lw_shared_ptr():
     def __init__(self, ref):
@@ -1687,9 +1659,14 @@ class seastar_lw_shared_ptr():
 
     def _no_esft_type(self):
         try:
-            return gdb.lookup_type('seastar::lw_shared_ptr_no_esft<%s>' % remove_prefix(str(self.elem_type.unqualified()), 'class ')).pointer()
+            return gdb.lookup_type(
+                f"seastar::lw_shared_ptr_no_esft<{remove_prefix(str(self.elem_type.unqualified()), 'class ')}>"
+            ).pointer()
+
         except:
-            return gdb.lookup_type('seastar::shared_ptr_no_esft<%s>' % remove_prefix(str(self.elem_type.unqualified()), 'class ')).pointer()
+            return gdb.lookup_type(
+                f"seastar::shared_ptr_no_esft<{remove_prefix(str(self.elem_type.unqualified()), 'class ')}>"
+            ).pointer()
 
     def get(self):
         if has_enable_lw_shared_from_this(self.elem_type):
@@ -1744,10 +1721,9 @@ def find_instances(type_name):
     This is true, for instance, for all objects allocated using std::make_unique().
     """
     ptr_type = gdb.lookup_type(type_name).pointer()
-    vtable_name = 'vtable for %s ' % type_name
+    vtable_name = f'vtable for {type_name} '
     for obj_addr, vtable_addr in find_vptrs():
-        name = resolve(vtable_addr, startswith=vtable_name)
-        if name:
+        if name := resolve(vtable_addr, startswith=vtable_name):
             yield gdb.Value(obj_addr).cast(ptr_type)
 
 
@@ -1832,8 +1808,8 @@ class span_checker(object):
     def __init__(self):
         self._page_size = int(gdb.parse_and_eval('\'seastar::memory::page_size\''))
         span_list = list(spans())
-        self._start_to_span = dict((s.start, s) for s in span_list)
-        self._starts = list(s.start for s in span_list)
+        self._start_to_span = {s.start: s for s in span_list}
+        self._starts = [s.start for s in span_list]
 
     def spans(self):
         return self._start_to_span.values()
@@ -1844,9 +1820,7 @@ class span_checker(object):
             return None
         span_start = self._starts[idx - 1]
         s = self._start_to_span[span_start]
-        if span_start + s.page['span_size'] * self._page_size <= ptr:
-            return None
-        return s
+        return None if span_start + s.page['span_size'] * self._page_size <= ptr else s
 
 
 class scylla_memory(gdb.Command):
@@ -1972,9 +1946,21 @@ class scylla_memory(gdb.Command):
             return
 
         try:
-            mem_stats = dict()
-            for key, sem in [('user_mem_str', db['_read_concurrency_sem']), ('streaming_mem_str', db['_streaming_concurrency_sem']), ('system_mem_str', db['_system_read_concurrency_sem'])]:
-                mem_stats[key] = '{:>13}/{:>13} B'.format(int(sem['_initial_resources']['memory'] - sem['_resources']['memory']), int(sem['_initial_resources']['memory']))
+            mem_stats = {
+                key: '{:>13}/{:>13} B'.format(
+                    int(
+                        sem['_initial_resources']['memory']
+                        - sem['_resources']['memory']
+                    ),
+                    int(sem['_initial_resources']['memory']),
+                )
+                for key, sem in [
+                    ('user_mem_str', db['_read_concurrency_sem']),
+                    ('streaming_mem_str', db['_streaming_concurrency_sem']),
+                    ('system_mem_str', db['_system_read_concurrency_sem']),
+                ]
+            }
+
         except gdb.error: # <= 4.2 compatibility
             for key, sem in [('user_mem_str', db['_read_concurrency_sem']), ('streaming_mem_str', db['_streaming_concurrency_sem']), ('system_mem_str', db['_system_read_concurrency_sem'])]:
                 mem_stats[key] = 'remaining mem: {:>13} B'.format(int(sem['_resources']['memory']))
@@ -2003,7 +1989,7 @@ class scylla_memory(gdb.Command):
             human_name = machine_name.replace('_', ' ').strip()
             total = 0
 
-            gdb.write('    {}:\n'.format(human_name))
+            gdb.write(f'    {human_name}:\n')
             es = db
             for path_component in es_path:
                 try:
@@ -2019,14 +2005,12 @@ class scylla_memory(gdb.Command):
         gdb.write('  Tables - Ongoing Operations:\n')
         for machine_name in ['_pending_writes_phaser', '_pending_reads_phaser', '_pending_streams_phaser']:
             human_name = machine_name.replace('_', ' ').strip()
-            gdb.write('    {} (top 10):\n'.format(human_name))
+            gdb.write(f'    {human_name} (top 10):\n')
             total = 0
-            i = 0
-            for count, tables in scylla_memory.summarize_table_phased_barrier_users(db, machine_name):
+            for i, (count, tables) in enumerate(scylla_memory.summarize_table_phased_barrier_users(db, machine_name)):
                 total += count
                 if i < 10:
                     gdb.write('      {:9} {}\n'.format(count, ', '.join(tables)))
-                i += 1
             gdb.write('      {:9} Total (all)\n'.format(total))
         gdb.write('\n')
 
@@ -2190,12 +2174,11 @@ class ProfNode(TreeNode):
 def collapse_similar(node):
     while node.has_only_one_child():
         child = next(iter(node.children))
-        if node.attributes == child.attributes:
-            node.squash_child()
-            node.tail.append(child.key)
-        else:
+        if node.attributes != child.attributes:
             break
 
+        node.squash_child()
+        node.tail.append(child.key)
     for child in node.children:
         collapse_similar(child)
 
@@ -2277,12 +2260,9 @@ class scylla_heapprof(gdb.Command):
                 n.size += size
                 n.count += count
                 bt = site['backtrace']['_main']
-                addresses = list(int(f['addr']) for f in static_vector(bt['_frames']))
+                addresses = [int(f['addr']) for f in static_vector(bt['_frames'])]
                 addresses.pop(0)  # drop memory::get_backtrace()
-                if args.inverted:
-                    seq = reversed(addresses)
-                else:
-                    seq = addresses
+                seq = reversed(addresses) if args.inverted else addresses
                 for addr in seq:
                     n = n.get_or_add(addr)
                     n.size += size
@@ -2299,7 +2279,7 @@ class scylla_heapprof(gdb.Command):
         if args.flame:
             file_name = 'heapprof.stacks'
             with open(file_name, 'w') as out:
-                trace = list()
+                trace = []
 
                 def print_node(n):
                     if n.key:
@@ -2308,17 +2288,24 @@ class scylla_heapprof(gdb.Command):
                     for c in n.children:
                         print_node(c)
                     if not n.has_children():
-                        out.write("%s %d\n" % (';'.join(map(lambda x: '%s' % (x), map(resolver, trace))), n.size))
+                        out.write(
+                            "%s %d\n"
+                            % (
+                                ';'.join(
+                                    map(lambda x: f'{x}', map(resolver, trace))
+                                ),
+                                n.size,
+                            )
+                        )
+
                     if n.key:
                         del trace[-1 - len(n.tail):]
+
                 print_node(root)
             gdb.write('Wrote %s\n' % (file_name))
         else:
             def node_formatter(n):
-                if n.key is None:
-                    name = "All"
-                else:
-                    name = resolver(n.key)
+                name = "All" if n.key is None else resolver(n.key)
                 return "%s (%d, #%d)\n%s" % (name, n.size, n.count, '\n'.join(map(resolver, n.tail)))
 
             def node_filter(n):
@@ -2383,7 +2370,7 @@ class pointer_metadata(object):
         self.offset_in_object = 0
 
     def is_managed_by_seastar(self):
-        return not self.thread is None
+        return self.thread is not None
 
     @property
     def is_containing_page_free(self):
@@ -2431,7 +2418,7 @@ class scylla_ptr(gdb.Command):
 
     @staticmethod
     def is_seastar_allocator_used():
-        if not scylla_ptr._is_seastar_allocator_used is None:
+        if scylla_ptr._is_seastar_allocator_used is not None:
             return scylla_ptr._is_seastar_allocator_used
 
         try:
@@ -2444,11 +2431,14 @@ class scylla_ptr(gdb.Command):
 
     @staticmethod
     def analyze(ptr):
-        owning_thread = None
-        for t, start, size in seastar_memory_layout():
-            if ptr >= start and ptr < start + size:
-                owning_thread = t
-                break
+        owning_thread = next(
+            (
+                t
+                for t, start, size in seastar_memory_layout()
+                if ptr >= start and ptr < start + size
+            ),
+            None,
+        )
 
         ptr_meta = pointer_metadata(ptr, owning_thread)
 
@@ -2516,7 +2506,7 @@ class scylla_ptr(gdb.Command):
 
         ptr_meta = self.analyze(ptr)
 
-        gdb.write("{}\n".format(str(ptr_meta)))
+        gdb.write(f"{str(ptr_meta)}\n")
 
 
 class segment_descriptor:
@@ -2612,14 +2602,13 @@ class scylla_lsa_check(gdb.Command):
         for desc in std_vector(segment_pool["_segments"]):
             desc = segment_descriptor(desc)
             if desc.is_lsa() and desc.region() == cache_region.impl():
-                if not int(desc.address) in in_buckets:
-                    if cache_region.impl()['_active'] != base and cache_region.impl()['_buf_active'] != base:
-                        # stray = not in _closed_segments
-                        gdb.write('ERROR: Stray segment: (logalloc::segment*)0x%x, (logalloc::segment_descriptor*)0x%x, free_space=%d\n'
-                              % (base, int(desc.address), desc.free_space()))
-                else:
+                if int(desc.address) in in_buckets:
                     desc_free_space += desc.free_space()
                     desc_total_space += segment_size
+                elif cache_region.impl()['_active'] != base and cache_region.impl()['_buf_active'] != base:
+                    # stray = not in _closed_segments
+                    gdb.write('ERROR: Stray segment: (logalloc::segment*)0x%x, (logalloc::segment_descriptor*)0x%x, free_space=%d\n'
+                          % (base, int(desc.address), desc.free_space()))
             base += segment_size
 
         region_free_space = int(cache_region.impl()['_closed_occupancy']['_free_space'])

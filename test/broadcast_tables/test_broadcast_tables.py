@@ -19,7 +19,7 @@ def random_string(size=10) -> str:
 def select(cql, key: str) -> Optional[str]:
     result = list(cql.execute(f"SELECT value FROM system.broadcast_kv_store WHERE key = '{key}';"))
 
-    if len(result) == 0:
+    if not result:
         return None
 
     assert len(result) == 1
@@ -82,9 +82,9 @@ async def test_broadcast_kv_store(cql) -> None:
                 kv_store[key] = new_value
             elif query_type == QueryType.CONDITIONAL_UPDATE:
                 condition_type: ConditionType
-                if len(kv_store) == 0:
+                if not kv_store:
                     condition_type = ConditionType.NEW_KEY
-                elif len(remaining_strings) == 0:
+                elif not remaining_strings:
                     condition_type = random.choice([ConditionType.EXISTING_KEY_PASS, ConditionType.EXISTING_KEY_FAIL])
                 else:
                     condition_type = random.choices(

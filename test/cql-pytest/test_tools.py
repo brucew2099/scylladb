@@ -51,8 +51,14 @@ def scylla_path(cql):
 @pytest.fixture(scope="module")
 def scylla_data_dir(cql):
     try:
-        dir = json.loads(cql.execute("SELECT value FROM system.config WHERE name = 'data_file_directories'").one().value)[0]
-        return dir
+        return json.loads(
+            cql.execute(
+                "SELECT value FROM system.config WHERE name = 'data_file_directories'"
+            )
+            .one()
+            .value
+        )[0]
+
     except:
         pytest.skip("Can't find Scylla sstable directory")
 
@@ -63,7 +69,7 @@ def simple_no_clustering_table(cql, keyspace):
 
     cql.execute(schema)
 
-    for pk in range(0, 10):
+    for pk in range(10):
         x = random.randrange(0, 4)
         if x == 0:
             # partition tombstone
@@ -86,8 +92,8 @@ def simple_clustering_table(cql, keyspace):
 
     cql.execute(schema)
 
-    for pk in range(0, 10):
-        for ck in range(0, 10):
+    for pk in range(10):
+        for ck in range(10):
             x = random.randrange(0, 8)
             if x == 0:
                 # ttl
@@ -122,9 +128,9 @@ def clustering_table_with_collection(cql, keyspace):
 
     cql.execute(schema)
 
-    for pk in range(0, 10):
-        for ck in range(0, 10):
-            map_vals = {f"{p}: '{c}'" for p in range(0, pk) for c in range(0, ck)}
+    for pk in range(10):
+        for ck in range(10):
+            map_vals = {f"{p}: '{c}'" for p in range(pk) for c in range(ck)}
             map_str = ", ".join(map_vals)
             cql.execute(f"INSERT INTO {keyspace}.{table} (pk, ck, v) VALUES ({pk}, {ck}, {{{map_str}}})")
         if pk == 5:
@@ -143,8 +149,8 @@ def clustering_table_with_udt(cql, keyspace):
     cql.execute(create_type_schema)
     cql.execute(create_table_schema)
 
-    for pk in range(0, 10):
-        for ck in range(0, 10):
+    for pk in range(10):
+        for ck in range(10):
             cql.execute(f"INSERT INTO {keyspace}.{table} (pk, ck, v) VALUES ({pk}, {ck}, {{f1: 100, f2: 'asd'}})")
         if pk == 5:
             nodetool.flush(cql, f"{keyspace}.{table}")
@@ -160,8 +166,8 @@ def table_with_counters(cql, keyspace):
 
     cql.execute(schema)
 
-    for pk in range(0, 10):
-        for c in range(0, 4):
+    for pk in range(10):
+        for _ in range(4):
             cql.execute(f"UPDATE {keyspace}.{table} SET v = v + 1 WHERE pk = {pk};")
         if pk == 5:
             nodetool.flush(cql, f"{keyspace}.{table}")
@@ -179,7 +185,7 @@ def scylla_sstable(table_factory, cql, ks, data_dir):
     with open(schema_file, "w") as f:
         f.write(schema)
 
-    sstables = glob.glob(os.path.join(data_dir, ks, table + '-*', '*-Data.db'))
+    sstables = glob.glob(os.path.join(data_dir, ks, f'{table}-*', '*-Data.db'))
 
     try:
         yield (schema_file, sstables)

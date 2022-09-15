@@ -280,7 +280,7 @@ def test_create_table_special_column_name(test_table_special_column_name):
 def test_list_tables_paginated(dynamodb, test_table, test_table_s, test_table_b):
     my_tables_set = {table.name for table in [test_table, test_table_s, test_table_b]}
     for limit in [1, 2, 3, 4, 50, 100]:
-        print("testing limit={}".format(limit))
+        print(f"testing limit={limit}")
         list_tables_set = set(list_tables(dynamodb, limit))
         assert my_tables_set.issubset(list_tables_set)
 
@@ -338,7 +338,7 @@ def check_pre_raft(dynamodb):
             ExpressionAttributeNames={'#key': 'name'},
             ExpressionAttributeValues={':val': 'experimental_features'}
         )['Items'][0]['value']
-    return not '"raft"' in experimental_features
+    return '"raft"' not in experimental_features
 @pytest.fixture(scope="function")
 def fails_without_raft(request, check_pre_raft):
     if check_pre_raft:

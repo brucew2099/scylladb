@@ -377,10 +377,18 @@ def testNestedClusteringKeyUsage(cql, test_keyspace):
                    [0, {frozenset({}): [1, 2, 3]}, set(), 0]
         )
 
-        assert_rows(execute(cql, table, "SELECT * FROM %s WHERE a=? AND (b, c) IN ?", 0, [tuple([{frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}]), tuple([{}, {}])]),
-                   [0, {}, set(), 0],
-                   [0, {frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}, 0]
+        assert_rows(
+            execute(
+                cql,
+                table,
+                "SELECT * FROM %s WHERE a=? AND (b, c) IN ?",
+                0,
+                [({frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}), ({}, {})],
+            ),
+            [0, {}, set(), 0],
+            [0, {frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}, 0],
         )
+
 
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE a=? AND b > ?", 0, {frozenset({4, 5, 6}): [1, 2, 3]}),
                    [0, {frozenset({7, 8, 9}): [1, 2, 3]}, {1, 2, 3}, 0]
@@ -486,10 +494,18 @@ def testNestedClusteringKeyUsageWithReverseOrder(cql, test_keyspace):
 
         # The following SELECT, with a tuple of frozen collections,
         # reproduces issue #7902:
-        assert_rows(execute(cql, table, "SELECT * FROM %s WHERE a=? AND (b, c) IN ?", 0, [tuple([{frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}]), tuple([{}, {}])]),
-                   [0, {frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}, 0],
-                   [0, {}, set(), 0],
+        assert_rows(
+            execute(
+                cql,
+                table,
+                "SELECT * FROM %s WHERE a=? AND (b, c) IN ?",
+                0,
+                [({frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}), ({}, {})],
+            ),
+            [0, {frozenset({4, 5, 6}): [1, 2, 3]}, {1, 2, 3}, 0],
+            [0, {}, set(), 0],
         )
+
 
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE a=? AND b > ?", 0, {frozenset({4, 5, 6}): [1, 2, 3]}),
                    [0, {frozenset({7, 8, 9}): [1, 2, 3]}, {1, 2, 3}, 0]

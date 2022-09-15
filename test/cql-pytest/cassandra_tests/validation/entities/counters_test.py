@@ -22,24 +22,38 @@ def testRegularCounters(cql, test_keyspace):
     # ConfigurationException. We shouldn't have done that... But I consider
     # this difference to be so trivial I didn't want to consider this a bug.
     # Maybe we should reconsider, and not allow ConfigurationException...
-    assert_invalid_throw_message(cql, test_keyspace + "." + unique_name(),
-                                 "non counter",
-                                 (InvalidRequest, ConfigurationException),
-                                 "CREATE TABLE %s (id bigint PRIMARY KEY, count counter, things set<text>)")
+    assert_invalid_throw_message(
+        cql,
+        f"{test_keyspace}.{unique_name()}",
+        "non counter",
+        (InvalidRequest, ConfigurationException),
+        "CREATE TABLE %s (id bigint PRIMARY KEY, count counter, things set<text>)",
+    )
 
 # Migrated from cql_tests.py:TestCQL.collection_counter_test()
 def testCountersOnCollections(cql, test_keyspace):
-    assert_invalid_throw(cql, test_keyspace + "." + unique_name(),
-                         InvalidRequest,
-                         "CREATE TABLE %s (k int PRIMARY KEY, l list<counter>)")
+    assert_invalid_throw(
+        cql,
+        f"{test_keyspace}.{unique_name()}",
+        InvalidRequest,
+        "CREATE TABLE %s (k int PRIMARY KEY, l list<counter>)",
+    )
 
-    assert_invalid_throw(cql, test_keyspace + "." + unique_name(),
-                         InvalidRequest,
-                         "CREATE TABLE %s (k int PRIMARY KEY, s set<counter>)")
 
-    assert_invalid_throw(cql, test_keyspace + "." + unique_name(),
-                         InvalidRequest,
-                         "CREATE TABLE %s (k int PRIMARY KEY, m map<text, counter>)")
+    assert_invalid_throw(
+        cql,
+        f"{test_keyspace}.{unique_name()}",
+        InvalidRequest,
+        "CREATE TABLE %s (k int PRIMARY KEY, s set<counter>)",
+    )
+
+
+    assert_invalid_throw(
+        cql,
+        f"{test_keyspace}.{unique_name()}",
+        InvalidRequest,
+        "CREATE TABLE %s (k int PRIMARY KEY, m map<text, counter>)",
+    )
 
 def testCounterUpdatesWithUnset(cql, test_keyspace):
     with create_table(cql, test_keyspace, "(k int PRIMARY KEY, c counter)") as table:
@@ -110,10 +124,13 @@ def testProhibitReversedCounterAsPartOfPrimaryKey(cql, test_keyspace):
     # counter type is not supported for PRIMARY KEY column 'a'"
     # counter type is not supported for PRIMARY KEY part a
     # respectively.
-    assert_invalid_throw_message(cql, test_keyspace + "." + unique_name(),
-                                 "counter type is not supported for PRIMARY KEY",
-                                 InvalidRequest,
-                                 "CREATE TABLE %s (a counter, b int, PRIMARY KEY (b, a)) WITH CLUSTERING ORDER BY (a desc);")
+    assert_invalid_throw_message(
+        cql,
+        f"{test_keyspace}.{unique_name()}",
+        "counter type is not supported for PRIMARY KEY",
+        InvalidRequest,
+        "CREATE TABLE %s (a counter, b int, PRIMARY KEY (b, a)) WITH CLUSTERING ORDER BY (a desc);",
+    )
 
 # Check that a counter batch works as intended
 def testCounterBatch(cql, test_keyspace):

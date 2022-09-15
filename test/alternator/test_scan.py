@@ -245,7 +245,7 @@ def test_scan_select(filled_test_table):
 def test_scan_parallel(filled_test_table):
     test_table, items = filled_test_table
     for nsegments in [1, 2, 17]:
-        print('Testing TotalSegments={}'.format(nsegments))
+        print(f'Testing TotalSegments={nsegments}')
         got_items = []
         for segment in range(nsegments):
             got_items.extend(full_scan(test_table, TotalSegments=nsegments, Segment=segment))
@@ -373,9 +373,9 @@ def test_scan_long_partition_tombstone_string(dynamodb):
     # make this test not "veryslow".
     N = 1000000
     with new_test_table(dynamodb,
-        KeySchema=[{ 'AttributeName': 'p', 'KeyType': 'HASH' }],
-        AttributeDefinitions=[{ 'AttributeName': 'p', 'AttributeType': 'N' }]
-        ) as table:
+            KeySchema=[{ 'AttributeName': 'p', 'KeyType': 'HASH' }],
+            AttributeDefinitions=[{ 'AttributeName': 'p', 'AttributeType': 'N' }]
+            ) as table:
         # We want to have two live partitions with a lot of partition
         # tombstones between them. But the hash function is pseudo-random
         # so we don't know which partitions would be the first and last.
@@ -395,7 +395,7 @@ def test_scan_long_partition_tombstone_string(dynamodb):
         # Now write all N items - all except "first" and "last" are deletions
         with table.batch_writer() as batch:
             for i in range(N):
-                if i == first or i == last:
+                if i in [first, last]:
                     batch.put_item(Item={ 'p': i })
                 else:
                     batch.delete_item(Key={ 'p': i })
