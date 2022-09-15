@@ -35,7 +35,7 @@ def fetch_all_pages(results, col):
     pages = []
     while True:
         pages.append([getattr(r, col) for r in list(results.current_rows)])
-        print('fetched page: {}'.format(pages[-1]))
+        print(f'fetched page: {pages[-1]}')
         if results.has_more_pages:
             results.fetch_next_page()
         else:
@@ -55,7 +55,7 @@ def test_row_tombstone_prefix(cql, table, lowered_tombstone_limit):
 
     pk = unique_key_int()
 
-    for ck in range(0, 30):
+    for ck in range(30):
         cql.execute(delete_row_id, (pk, ck))
 
     cql.execute(insert_row_id, (pk, 31, 0))
@@ -83,7 +83,7 @@ def test_row_tombstone_span(cql, table, lowered_tombstone_limit, driver_bug_1):
 
     pk = unique_key_int()
 
-    for ck in range(0, 11):
+    for ck in range(11):
         cql.execute(insert_row_id, (pk, ck, 0))
 
     for ck in range(30, 50):
@@ -92,20 +92,15 @@ def test_row_tombstone_span(cql, table, lowered_tombstone_limit, driver_bug_1):
     cql.execute(insert_row_id, (pk, 51, 0))
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk}", fetch_size=10)
-    check_pages_single_partition(cql.execute(statement), [
-        list(range(0, 10)),
-        [10],
-        [],
-        [51]
-    ])
+    check_pages_single_partition(
+        cql.execute(statement), [list(range(10)), [10], [], [51]]
+    )
+
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk} AND v = 0 ALLOW FILTERING", fetch_size=10)
-    check_pages_single_partition(cql.execute(statement), [
-        list(range(0, 10)),
-        [10],
-        [],
-        [51]
-    ])
+    check_pages_single_partition(
+        cql.execute(statement), [list(range(10)), [10], [], [51]]
+    )
 
 
 def test_range_tombstone_prefix(cql, table, lowered_tombstone_limit, driver_bug_1):
@@ -141,7 +136,7 @@ def test_range_tombstone_span(cql, table, lowered_tombstone_limit, driver_bug_1)
 
     pk = unique_key_int()
 
-    for ck in range(0, 12):
+    for ck in range(12):
         cql.execute(insert_row_id, (pk, ck, 0))
 
     # generates 10 range tombstones -> 20 range tombstone changes
@@ -151,20 +146,15 @@ def test_range_tombstone_span(cql, table, lowered_tombstone_limit, driver_bug_1)
     cql.execute(insert_row_id, (pk, 2000, 0))
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk}", fetch_size=10)
-    check_pages_single_partition(cql.execute(statement), [
-        list(range(0, 10)),
-        [10, 11],
-        [],
-        [2000]
-    ])
+    check_pages_single_partition(
+        cql.execute(statement), [list(range(10)), [10, 11], [], [2000]]
+    )
+
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk} AND v = 0 ALLOW FILTERING", fetch_size=10)
-    check_pages_single_partition(cql.execute(statement), [
-        list(range(0, 10)),
-        [10, 11],
-        [],
-        [2000]
-    ])
+    check_pages_single_partition(
+        cql.execute(statement), [list(range(10)), [10, 11], [], [2000]]
+    )
 
 
 def test_empty_row_prefix(cql, table, lowered_tombstone_limit, driver_bug_1):
@@ -175,10 +165,10 @@ def test_empty_row_prefix(cql, table, lowered_tombstone_limit, driver_bug_1):
 
     pk = unique_key_int()
 
-    for ck in range(0, 20):
+    for ck in range(20):
         cql.execute(upsert_row_id, (0, pk, ck))
 
-    for ck in range(0, 16):
+    for ck in range(16):
         cql.execute(delete_row_id, (pk, ck))
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk}", fetch_size=10)
@@ -203,25 +193,22 @@ def test_empty_row_span(cql, table, lowered_tombstone_limit, driver_bug_1):
 
     pk = unique_key_int()
 
-    for ck in range(0, 30):
+    for ck in range(30):
         cql.execute(upsert_row_id, (0, pk, ck))
 
     for ck in range(5, 28):
         cql.execute(delete_row_id, (pk, ck))
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk}", fetch_size=10)
-    check_pages_single_partition(cql.execute(statement), [
-        list(range(0, 5)),
-        [],
-        list(range(28, 30)),
-    ])
+    check_pages_single_partition(
+        cql.execute(statement), [list(range(5)), [], list(range(28, 30))]
+    )
+
 
     statement = SimpleStatement(f"SELECT * FROM {table} WHERE pk = {pk} AND v = 0 ALLOW FILTERING", fetch_size=10)
-    check_pages_single_partition(cql.execute(statement), [
-        list(range(0, 5)),
-        [],
-        list(range(28, 30)),
-    ])
+    check_pages_single_partition(
+        cql.execute(statement), [list(range(5)), [], list(range(28, 30))]
+    )
 
 
 def get_all_pks(cql, table):
@@ -252,7 +239,7 @@ def test_partition_tombstone_prefix(cql, test_keyspace, lowered_tombstone_limit,
         insert_row_id = cql.prepare(f"INSERT INTO {table} (pk, ck, v) VALUES (?, ?, ?)")
         delete_partition_id = cql.prepare(f"DELETE FROM {table} WHERE pk = ?")
 
-        for pk in range(0, 400):
+        for pk in range(400):
             cql.execute(insert_row_id, (pk, 0, 0))
 
         all_pks = get_all_pks(cql, table)
@@ -273,7 +260,7 @@ def test_partition_tombstone_span(cql, test_keyspace, lowered_tombstone_limit, d
         insert_row_id = cql.prepare(f"INSERT INTO {table} (pk, ck, v) VALUES (?, ?, ?)")
         delete_partition_id = cql.prepare(f"DELETE FROM {table} WHERE pk = ?")
 
-        for pk in range(0, 400):
+        for pk in range(400):
             cql.execute(insert_row_id, (pk, 0, 0))
 
         all_pks = get_all_pks(cql, table)
@@ -293,7 +280,7 @@ def test_static_row_tombstone_prefix(cql, test_keyspace, lowered_tombstone_limit
         upsert_row_id = cql.prepare(f"UPDATE {table} SET s = ? WHERE pk = ?")
         delete_partition_id = cql.prepare(f"DELETE FROM {table} WHERE pk = ?")
 
-        for pk in range(0, 400):
+        for pk in range(400):
             cql.execute(upsert_row_id, (0, pk))
 
         all_pks = get_all_pks(cql, table)
@@ -313,7 +300,7 @@ def test_static_row_tombstone_span(cql, test_keyspace, lowered_tombstone_limit, 
         upsert_row_id = cql.prepare(f"UPDATE {table} SET s = ? WHERE pk = ?")
         delete_partition_id = cql.prepare(f"DELETE FROM {table} WHERE pk = ?")
 
-        for pk in range(0, 400):
+        for pk in range(400):
             cql.execute(upsert_row_id, (0, pk))
 
         all_pks = get_all_pks(cql, table)
@@ -331,6 +318,8 @@ def test_static_row_tombstone_span(cql, test_keyspace, lowered_tombstone_limit, 
 # Sanity check that empty pages support didn't mess up truly empty results.
 def test_empty_table(cql, test_keyspace, lowered_tombstone_limit, driver_bug_1):
     with new_test_table(cql, test_keyspace, 'pk int, ck int, v int, PRIMARY KEY (pk, ck)') as table:
-        assert list(cql.execute(f"SELECT * FROM {table}")) == []
-        assert list(cql.execute(f"SELECT * FROM {table} WHERE pk = 0")) == []
-        assert list(cql.execute(f"SELECT * FROM {table} WHERE v = 0 ALLOW FILTERING")) == []
+        assert not list(cql.execute(f"SELECT * FROM {table}"))
+        assert not list(cql.execute(f"SELECT * FROM {table} WHERE pk = 0"))
+        assert not list(
+            cql.execute(f"SELECT * FROM {table} WHERE v = 0 ALLOW FILTERING")
+        )

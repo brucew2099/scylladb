@@ -57,20 +57,27 @@ def dotestCreateAndDropIndex(cql, table, indexName, addKeyspaceOnDrop):
     assert_invalid_message(cql, table, INDEX,
         f"DROP INDEX {KEYSPACE}.{indexName}")
 
-    execute(cql, table, "CREATE INDEX " + indexName + " ON %s(b);")
-    execute(cql, table, "CREATE INDEX IF NOT EXISTS " + indexName + " ON %s(b);")
+    execute(cql, table, f"CREATE INDEX {indexName} ON %s(b);")
+    execute(cql, table, f"CREATE INDEX IF NOT EXISTS {indexName} ON %s(b);")
     # The failure message in Scylla and Cassandra differ: Cassandra has
     # "Index '{INDEX}' already exists", while Scylla has "Index already
     # exists" (without the index name)
-    assert_invalid_message(cql, table, f"already exists",
-        "CREATE INDEX " + indexName + " ON %s(b)")
+    assert_invalid_message(
+        cql, table, "already exists", f"CREATE INDEX {indexName} ON %s(b)"
+    )
+
 
     # IF NOT EXISTS should apply in cases where the new index differs from
     # an existing one in name only
-    otherIndexName = "index_" + unique_name()
-    execute(cql, table, "CREATE INDEX IF NOT EXISTS " + otherIndexName + " ON %s(b)")
-    assert_invalid_message(cql, table, f"Index {otherIndexName} is a duplicate of existing index {INDEX}",
-        "CREATE INDEX " + otherIndexName + " ON %s(b)")
+    otherIndexName = f"index_{unique_name()}"
+    execute(cql, table, f"CREATE INDEX IF NOT EXISTS {otherIndexName} ON %s(b)")
+    assert_invalid_message(
+        cql,
+        table,
+        f"Index {otherIndexName} is a duplicate of existing index {INDEX}",
+        f"CREATE INDEX {otherIndexName} ON %s(b)",
+    )
+
     execute(cql, table, "INSERT INTO %s (a, b) values (?, ?);", 0, 0)
     execute(cql, table, "INSERT INTO %s (a, b) values (?, ?);", 1, 1)
     execute(cql, table, "INSERT INTO %s (a, b) values (?, ?);", 2, 2)
@@ -405,7 +412,7 @@ def testSelectCountOnIndexedColumn(cql, test_keyspace):
             assert_rows(execute(cql, table, "select count(*) from %s where app_name='foo' and account='bar' and last_access > 4 allow filtering"), [1])
 
 def createAndDropCollectionValuesIndex(cql, keyspace, table, columnName):
-    indexName = columnName + "_idx"
+    indexName = f"{columnName}_idx"
     execute(cql, table, f"CREATE INDEX {indexName} on %s({columnName})")
     execute(cql, table, f"DROP INDEX {keyspace}.{indexName}")
     execute(cql, table, f"CREATE INDEX {indexName} on %s(values({columnName}))")
@@ -912,7 +919,7 @@ def testIndexOnDurationColumn(cql, test_keyspace):
                              "CREATE INDEX ON %s (t)")
 
     with create_type(cql, test_keyspace, "(i int, d duration)") as udt:
-        with create_table(cql, test_keyspace, "(k int PRIMARY KEY, t " + udt +")") as table:
+        with create_table(cql, test_keyspace, f"(k int PRIMARY KEY, t {udt})") as table:
             # This error message reproduces #8724:
             assert_invalid_message(cql, table, "Secondary indexes are not supported on UDTs containing durations",
                              "CREATE INDEX ON %s (t)")
@@ -1032,7 +1039,7 @@ def testIndexOnNonFrozenUDT(cql, test_keyspace):
 # like we do in C++ unit tests. Alternatively, could we have a sub-second
 # TTL feature?
 def testIndexOnPartitionKeyInsertExpiringColumn(cql, test_keyspace):
-    with create_table(cql, test_keyspace, f"(k1 int, k2 int, a int, b int, PRIMARY KEY ((k1, k2)))") as table:
+    with create_table(cql, test_keyspace, "(k1 int, k2 int, a int, b int, PRIMARY KEY ((k1, k2)))") as table:
         execute(cql, table, "CREATE INDEX on %s(k1)")
         execute(cql, table, "INSERT INTO %s (k1, k2, a, b) VALUES (1, 2, 3, 4)")
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE k1 = 1"), [1, 2, 3, 4])
@@ -1041,7 +1048,7 @@ def testIndexOnPartitionKeyInsertExpiringColumn(cql, test_keyspace):
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE k1 = 1"), [1, 2, 3, None])
 
 def testIndexOnClusteringKeyInsertExpiringColumn(cql, test_keyspace):
-    with create_table(cql, test_keyspace, f"(pk int, ck int, a int, b int, PRIMARY KEY (pk, ck))") as table:
+    with create_table(cql, test_keyspace, "(pk int, ck int, a int, b int, PRIMARY KEY (pk, ck))") as table:
         execute(cql, table, "CREATE INDEX on %s(ck)")
         execute(cql, table, "INSERT INTO %s (pk, ck, a, b) VALUES (1, 2, 3, 4)")
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE ck = 2"), [1, 2, 3, 4])
@@ -1050,7 +1057,7 @@ def testIndexOnClusteringKeyInsertExpiringColumn(cql, test_keyspace):
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE ck = 2"), [1, 2, 3, None])
 
 def testIndexOnRegularColumnInsertExpiringColumn(cql, test_keyspace):
-    with create_table(cql, test_keyspace, f"(pk int, ck int, a int, b int, PRIMARY KEY (pk, ck))") as table:
+    with create_table(cql, test_keyspace, "(pk int, ck int, a int, b int, PRIMARY KEY (pk, ck))") as table:
         execute(cql, table, "CREATE INDEX on %s(a)")
         execute(cql, table, "INSERT INTO %s (pk, ck, a, b) VALUES (1, 2, 3, 4)")
         assert_rows(execute(cql, table, "SELECT * FROM %s WHERE a = 3"), [1, 2, 3, 4])

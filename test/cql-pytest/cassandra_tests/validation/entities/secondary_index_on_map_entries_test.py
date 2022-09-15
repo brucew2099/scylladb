@@ -54,10 +54,25 @@ def insertIntoSimpleTable(cql, table, key, value):
     return [key, value]
 
 def assertRowsForConditions(cql, table, whereClause, params, *rows):
-    assert_rows_ignoring_order(execute(cql, table, "SELECT * FROM %s WHERE " + whereClause + " ALLOW FILTERING", *params), *rows)
+    assert_rows_ignoring_order(
+        execute(
+            cql,
+            table,
+            f"SELECT * FROM %s WHERE {whereClause} ALLOW FILTERING",
+            *params,
+        ),
+        *rows,
+    )
 
 def assertNoRowsForConditions(cql, table, whereClause, params):
-    assert_empty(execute(cql, table, "SELECT * FROM %s WHERE " + whereClause + " ALLOW FILTERING", *params))
+    assert_empty(
+        execute(
+            cql,
+            table,
+            f"SELECT * FROM %s WHERE {whereClause} ALLOW FILTERING",
+            *params,
+        )
+    )
  
 def testShouldFindRowsMatchingSingleEqualityRestriction(cql, simple_table_and_index):
     foo = insertIntoSimpleTable(cql, simple_table_and_index, "foo", {"a": 1, "c": 3})
@@ -74,7 +89,9 @@ def testShouldFindRowsMatchingSingleEqualityRestriction(cql, simple_table_and_in
 def testRequireFilteringDirectiveIfMultipleRestrictionsSpecified(cql, simple_table_and_index):
     baseQuery = "SELECT * FROM %s WHERE v['foo'] = 31415 AND v['baz'] = 31416"
     assert_invalid(cql, simple_table_and_index, baseQuery)
-    assert_empty(execute(cql, simple_table_and_index, baseQuery + " ALLOW FILTERING"))
+    assert_empty(
+        execute(cql, simple_table_and_index, f"{baseQuery} ALLOW FILTERING")
+    )
 
 def testShouldFindRowsMatchingMultipleEqualityRestrictions(cql, simple_table_and_index):
     foo = insertIntoSimpleTable(cql, simple_table_and_index, "foo", {"k1": 1})
@@ -109,7 +126,7 @@ def testShouldFindRowsMatchingEqualityAndContainsRestrictions(cql, simple_table_
     assertNoRowsForConditions(cql, simple_table_and_index, "v[?]=? AND v CONTAINS KEY ? AND v CONTAINS ?", ["common", 31415, "k5", 8])
 
 def assertInvalidRelation(cql, table, rel):
-    query = "SELECT * FROM %s WHERE v " + rel
+    query = f"SELECT * FROM %s WHERE v {rel}"
     assert_invalid(cql, table, query)
 
 def testShouldNotAcceptUnsupportedRelationsOnEntries(cql, simple_table_and_index):
@@ -125,7 +142,7 @@ def updateMapInSimpleTable(cql, table, row, mapKey, mapValue):
     execute(cql, table, "UPDATE %s SET v[?] = ? WHERE k = ?", mapKey, mapValue, row[0])
     results = list(execute(cql, table, "SELECT * FROM %s WHERE k = ?", row[0]))
     value = row[1]
-    if mapValue == None:
+    if mapValue is None:
         del value[mapKey]
     else:
         value[mapKey] = mapValue

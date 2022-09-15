@@ -181,9 +181,31 @@ def testIndexOnUDT(cql, test_keyspace):
 
             execute(cql, table, "INSERT INTO %s(id, company, home, price) "
                 + "VALUES(1, '" + companyName + "', " + addressString + ", 10000)")
-            assert_rows(execute(cql, table, "SELECT id, company FROM %s WHERE home = " + addressString), [1, companyName])
+            assert_rows(
+                execute(
+                    cql,
+                    table,
+                    f"SELECT id, company FROM %s WHERE home = {addressString}",
+                ),
+                [1, companyName],
+            )
+
             newAddressString = "{street: 'Fifth', city: 'P'}"
 
-            execute(cql, table, "UPDATE %s SET home = " + newAddressString + " WHERE id = 1")
-            assert_empty(execute(cql, table, "SELECT id, company FROM %s WHERE home = " + addressString))
-            assert_rows(execute(cql, table, "SELECT id, company FROM %s WHERE home = " + newAddressString), [1, companyName])
+            execute(cql, table, f"UPDATE %s SET home = {newAddressString} WHERE id = 1")
+            assert_empty(
+                execute(
+                    cql,
+                    table,
+                    f"SELECT id, company FROM %s WHERE home = {addressString}",
+                )
+            )
+
+            assert_rows(
+                execute(
+                    cql,
+                    table,
+                    f"SELECT id, company FROM %s WHERE home = {newAddressString}",
+                ),
+                [1, companyName],
+            )

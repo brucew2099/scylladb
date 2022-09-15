@@ -1230,12 +1230,12 @@ def testInsertJsonSyntaxWithTuplesAndUDTs(cql, test_keyspace):
 def testAlterUDT(cql, test_keyspace):
     with create_type(cql, test_keyspace, "(a int)") as type_name:
         with create_table(cql, test_keyspace, "(" +
-                "k int PRIMARY KEY, " +
-                "a frozen<" + type_name + ">)") as table:
+                        "k int PRIMARY KEY, " +
+                        "a frozen<" + type_name + ">)") as table:
             execute(cql, table, "INSERT INTO %s JSON ?", "{\"k\": 0, \"a\": {\"a\": 0}}")
             assert_rows(execute(cql, table, "SELECT JSON * FROM %s"), ["{\"k\": 0, \"a\": {\"a\": 0}}"])
 
-            execute(cql, table, "ALTER TYPE " + type_name + " ADD b boolean")
+            execute(cql, table, f"ALTER TYPE {type_name} ADD b boolean")
             # This assert, and only this one (not the following one) fails in #8092
             assert_rows(execute(cql, table, "SELECT JSON * FROM %s"), ["{\"k\": 0, \"a\": {\"a\": 0, \"b\": null}}"])
 

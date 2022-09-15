@@ -23,7 +23,16 @@ def test_grant_applicable_data_and_role_permissions(cql, test_keyspace, cassandr
     user = "cassandra"
     with new_test_table(cql, test_keyspace, schema) as table:
         # EXECUTE is not listed, as it only applies to functions, which aren't covered in this test case
-        all_permissions = set(['create', 'alter', 'drop', 'select', 'modify', 'authorize', 'describe'])
+        all_permissions = {
+            'create',
+            'alter',
+            'drop',
+            'select',
+            'modify',
+            'authorize',
+            'describe',
+        }
+
         applicable_permissions = {
             'all keyspaces': ['create', 'alter', 'drop', 'select', 'modify', 'authorize'],
             f'keyspace {test_keyspace}': ['create', 'alter', 'drop', 'select', 'modify', 'authorize'],
@@ -43,7 +52,7 @@ def test_grant_applicable_data_and_role_permissions(cql, test_keyspace, cassandr
 
 
 def eventually_authorized(fun, timeout_s=10):
-    for i in range(timeout_s * 10):
+    for _ in range(timeout_s * 10):
         try:
             return fun()
         except Unauthorized as e:
@@ -51,7 +60,7 @@ def eventually_authorized(fun, timeout_s=10):
     return fun()
 
 def eventually_unauthorized(fun, timeout_s=10):
-    for i in range(timeout_s * 10):
+    for _ in range(timeout_s * 10):
         try:
             fun()
             time.sleep(0.1)

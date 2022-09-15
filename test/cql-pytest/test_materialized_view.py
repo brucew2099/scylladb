@@ -24,7 +24,7 @@ def test_build_view_with_large_row(cql, test_keyspace):
         try:
             retrieved_row = False
             for _ in range(50):
-                res = [row for row in cql.execute(f"SELECT * FROM {test_keyspace}.{mv}")]
+                res = list(cql.execute(f"SELECT * FROM {test_keyspace}.{mv}"))
                 if len(res) == 1 and res[0].v == big:
                     retrieved_row = True
                     break
@@ -44,7 +44,7 @@ def test_update_view_with_large_row(cql, test_keyspace):
         try:
             big = 'x'*11*1024*1024
             cql.execute(f"INSERT INTO {table}(p,c,v) VALUES (1,1,'{big}')")
-            res = [row for row in cql.execute(f"SELECT * FROM {test_keyspace}.{mv}")]
+            res = list(cql.execute(f"SELECT * FROM {test_keyspace}.{mv}"))
             assert len(res) == 1 and res[0].v == big
         finally:
             cql.execute(f"DROP MATERIALIZED VIEW {test_keyspace}.{mv}")
@@ -116,9 +116,10 @@ def test_mv_quoted_column_names_build(cql, test_keyspace):
                 # which we don't). This means, unfortunately, that a failure
                 # of this test is slow - it needs to wait for a timeout.
                 start_time = time.time()
-                while time.time() < start_time + 30:
-                    if list(cql.execute(f'SELECT * from {mv}')) == [(2, 1)]:
-                        break
+                while time.time() < start_time + 30 and list(
+                    cql.execute(f'SELECT * from {mv}')
+                ) != [(2, 1)]:
+                    pass
                 assert list(cql.execute(f'SELECT * from {mv}')) == [(2, 1)]
 
 # The previous test (test_mv_empty_string_partition_key) verifies that a
@@ -187,11 +188,11 @@ def test_mv_is_not_null(cql, test_keyspace):
             # The view row should disappear and reappear if its key is
             # changed to null and back in the base table:
             cql.execute(f"UPDATE {table} SET v=null WHERE p=123")
-            assert list(cql.execute(f"SELECT * FROM {mv}")) == []
+            assert not list(cql.execute(f"SELECT * FROM {mv}"))
             cql.execute(f"UPDATE {table} SET v='cat' WHERE p=123")
             assert list(cql.execute(f"SELECT * FROM {mv}")) == [('cat', 123)]
             cql.execute(f"DELETE v FROM {table} WHERE p=123")
-            assert list(cql.execute(f"SELECT * FROM {mv}")) == []
+            assert not list(cql.execute(f"SELECT * FROM {mv}"))
 
 # Refs #10851. The code used to create a wildcard selection for all columns,
 # which erroneously also includes static columns if such are present in the
@@ -294,9 +295,6 @@ def test_oversized_base_regular_view_key(cql, test_keyspace, cassandra_bug):
 # but we do expect it to skip the problematic row and continue to complete
 # the rest of the vew build.
 @pytest.mark.xfail(reason="issue #8627")
-# This test currently breaks the build (it repeats a failing build step,
-# and never complete) and we cannot quickly recognize this failure, so
-# to avoid a very slow failure, we currently "skip" this test.
 @pytest.mark.skip(reason="issue #8627, fails very slow")
 def test_oversized_base_regular_view_key_build(cql, test_keyspace, cassandra_bug):
     with new_test_table(cql, test_keyspace, 'p int primary key, v text') as table:
@@ -320,7 +318,7 @@ def test_oversized_base_regular_view_key_build(cql, test_keyspace, cassandra_bug
                 results = set(list(cql.execute(f'SELECT * from {mv}')))
                 # The oversized "big" cannot be a key in the view, so
                 # shouldn't be in results:
-                assert not (big, 30) in results
+                assert (big, 30) not in results
                 print(results)
                 # The rest of the items in the base table should be in
                 # the view:
